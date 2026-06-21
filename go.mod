@@ -2,7 +2,10 @@ module github.com/lochanachamod/sentinel-ebpf
 
 go 1.21
 
-require github.com/cilium/ebpf v0.12.3
+require (
+	github.com/cilium/ebpf v0.12.3
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2 // indirect

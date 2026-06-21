@@ -1,0 +1,31 @@
+rules:
+  - name: "Block Shell Spawns from Web Servers"
+    action: "kill"
+    target_executables:
+      - "sh"
+      - "bash"
+      - "/bin/sh"
+      - "/bin/bash"
+    blocked_parents:
+      - "nginx"
+      - "apache2"
+      - "node"
+      - "python3"
+
+  - name: "Block Interactive Shells from Generic Users (Testing)"
+    action: "kill"
+    target_executables:
+      - "sh"
+      - "bash"
+      - "/bin/sh"
+      - "/bin/bash"
+    blocked_parents:
+      - "*" # * means block from ANY parent
+
+  - name: "Block Netcat Executions Globally"
+    action: "kill"
+    target_executables:
+      - "nc"
+      - "netcat"
+    blocked_parents:
+      - "*"

@@ -13,9 +13,75 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
+	"gopkg.in/yaml.v3"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ebpf/sentinel.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
+
+type Config struct {
+	Rules []Rule `yaml:"rules"`
+}
+
+type Rule struct {
+	Name              string   `yaml:"name"`
+	Action            string   `yaml:"action"`
+	TargetExecutables []string `yaml:"target_executables"`
+	BlockedParents    []string `yaml:"blocked_parents"`
+}
+
+func loadConfig(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var config Config
+	err = yaml.Unmarshal(data, &config)
+	return &config, err
+}
+
+func evaluateRules(config *Config, filename string, parentComm string, pid uint32) {
+	for _, rule := range config.Rules {
+		// Check if the executable matches
+		targetMatch := false
+		for _, target := range rule.TargetExecutables {
+			if strings.HasSuffix(filename, "/"+target) || filename == target {
+				targetMatch = true
+				break
+			}
+		}
+
+		if !targetMatch {
+			continue
+		}
+
+		// Check if the parent matches
+		parentMatch := false
+		for _, parent := range rule.BlockedParents {
+			if parent == "*" || parent == parentComm {
+				parentMatch = true
+				break
+			}
+		}
+
+		if parentMatch {
+			log.Printf("⚠️  ANOMALY DETECTED [Rule: %s]: Execution of %s by parent %s.", rule.Name, filename, parentComm)
+			if rule.Action == "kill" {
+				log.Printf("🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", pid)
+				process, err := os.FindProcess(int(pid))
+				if err != nil {
+					log.Printf("Failed to find process %d: %s", pid, err)
+				} else {
+					if err := process.Kill(); err != nil {
+						log.Printf("Failed to kill process %d: %s", pid, err)
+					} else {
+						log.Printf("✅ Process %d successfully terminated.", pid)
+					}
+				}
+			}
+			return // Stop evaluating after a match
+		}
+	}
+}
 
 // event represents the telemetry payload from the eBPF program
 type event struct {
@@ -31,6 +97,12 @@ func main() {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatal(err)
 	}
+
+	config, err := loadConfig("config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config.yaml: %v", err)
+	}
+	log.Printf("Loaded %d dynamic security rules.", len(config.Rules))
 
 	// Load pre-compiled programs and maps into the kernel.
 	objs := bpfObjects{}
@@ -97,24 +169,7 @@ func main() {
 
 		if e.Type == 1 {
 			log.Printf("[EXECVE] Parent: %s, UID: %d, Executing: %s (PID: %d)", parentComm, e.UID, filename, e.PID)
-
-			// Basic Anomaly Engine
-			if strings.HasSuffix(filename, "/sh") || strings.HasSuffix(filename, "/bash") || filename == "sh" || filename == "bash" {
-				log.Printf("⚠️  ANOMALY DETECTED: Execution of %s by parent %s. Flagging for containment evaluation.", filename, parentComm)
-
-				// Active Containment (Phase 5)
-				log.Printf("🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", e.PID)
-				process, err := os.FindProcess(int(e.PID))
-				if err != nil {
-					log.Printf("Failed to find process %d: %s", e.PID, err)
-				} else {
-					if err := process.Kill(); err != nil {
-						log.Printf("Failed to kill process %d: %s", e.PID, err)
-					} else {
-						log.Printf("✅ Process %d successfully terminated.", e.PID)
-					}
-				}
-			}
+			evaluateRules(config, filename, parentComm, e.PID)
 		} else if e.Type == 2 {
 			log.Printf("[CONNECT] PID: %d, UID: %d, Comm: %s", e.PID, e.UID, parentComm)
 		}
