@@ -47,41 +47,42 @@ But it doesn't stop there. Instead of just logging, Sentinel-eBPF evaluates exec
 ### Installation
 
 1. **Clone the repository:**
-   \`\`\`bash
-   git clone https://github.com/lochanachamod/sentinel-ebpf.git
-   cd sentinel-ebpf
-   \`\`\`
+```bash
+git clone https://github.com/lochanachamod/sentinel-ebpf.git
+cd sentinel-ebpf
+```
 
 2. **Configure your policies:**
-   Edit the `config.yaml` file to define your blocked executables and AI Copilot endpoints.
+Edit the `config.yaml` file to define your blocked executables and AI Copilot endpoints.
 
 3. **Start the Go Kernel Daemon:**
-   \`\`\`bash
-   # Compiles the eBPF C code and starts the daemon
-   sudo make run
-   \`\`\`
+```bash
+# Compiles the eBPF C code and starts the daemon
+sudo make run
+```
 
 4. **Start the Web Dashboard:**
-   Open a new terminal window:
-   \`\`\`bash
-   cd dashboard
-   npm install
-   npm run dev
-   \`\`\`
-   Visit \`http://localhost:5173\` in your browser to view the Command Center!
+Open a new terminal window:
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+Visit `http://localhost:5173` in your browser to view the Command Center!
 
 ---
 
 ## 🛡️ Example Alert
 When a suspicious process is executed (e.g., spawning `/bin/sh` from a web server), Sentinel-eBPF instantly logs and reacts:
-\`\`\`text
+
+```text
 [EXECVE] Cgroup: 4192, Parent: node, UID: 1000, Executing: /bin/sh (PID: 1042)
 ⚠️  ANOMALY DETECTED [Rule: AI Copilot Shell Evaluation]: Execution of /bin/sh by parent node in Cgroup 4192.
 🤖 Sending telemetry to AI Copilot at https://api.sentinel-ai.local/v1/evaluate...
 🤖 AI Decision: KILL (Confidence: 0.98) - Reason: Interactive shells spawned by arbitrary parents are highly suspicious.
 🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID 1042...
 ✅ Process 1042 successfully terminated.
-\`\`\`
+```
 
 ---
 
