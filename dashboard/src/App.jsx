@@ -8,7 +8,9 @@ import {
   AlertTriangle,
   ShieldAlert,
   Terminal,
-  Server
+  Server,
+  Search,
+  Filter
 } from 'lucide-react';
 import './App.css';
 
@@ -147,14 +149,14 @@ function Overview({ stats, events }) {
         </div>
       </div>
 
-      <div className="glass-panel" style={{ marginTop: '2rem', padding: '1.5rem' }}>
+      <div className="glass-panel overview-alerts" style={{ marginTop: '2rem', padding: '1.5rem' }}>
         <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>Recent Critical Alerts</h3>
         {recentCritical.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No critical alerts in recent history.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {recentCritical.map((e, i) => (
-              <div key={i} style={{ padding: '0.75rem', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', borderLeft: `3px solid var(--${e.severity === 'critical' ? 'danger' : 'warning'})` }}>
+              <div key={i} className="alert-row" style={{ borderLeft: `3px solid var(--${e.severity === 'critical' ? 'danger' : 'warning'})` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                   <strong style={{ fontSize: '0.85rem', color: `var(--${e.severity === 'critical' ? 'danger' : 'warning'})` }}>{e.type}</strong>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(e.timestamp).toLocaleTimeString()}</span>
@@ -170,14 +172,43 @@ function Overview({ stats, events }) {
 }
 
 function Telemetry({ events }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterSeverity, setFilterSeverity] = useState('ALL');
+
+  const filteredEvents = events.filter(e => {
+    const matchesSearch = e.details.toLowerCase().includes(searchTerm.toLowerCase()) || e.type.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSeverity = filterSeverity === 'ALL' || e.severity.toUpperCase() === filterSeverity;
+    return matchesSearch && matchesSeverity;
+  });
+
   return (
     <div className="fade-in">
-      <div className="page-header">
-        <h2>Live Telemetry</h2>
-        <p>Real-time stream of all hooked kernel syscalls.</p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h2>Live Telemetry</h2>
+          <p>Real-time stream of all hooked kernel syscalls.</p>
+        </div>
+        
+        <div className="telemetry-controls">
+          <div className="search-bar glass-panel">
+            <Search size={18} color="var(--text-muted)" />
+            <input 
+              type="text" 
+              placeholder="Search details..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <div className="filter-chips">
+            <button className={`chip ${filterSeverity === 'ALL' ? 'active' : ''}`} onClick={() => setFilterSeverity('ALL')}>All</button>
+            <button className={`chip chip-critical ${filterSeverity === 'CRITICAL' ? 'active' : ''}`} onClick={() => setFilterSeverity('CRITICAL')}>Critical</button>
+            <button className={`chip chip-warning ${filterSeverity === 'WARNING' ? 'active' : ''}`} onClick={() => setFilterSeverity('WARNING')}>Warning</button>
+            <button className={`chip chip-info ${filterSeverity === 'INFO' ? 'active' : ''}`} onClick={() => setFilterSeverity('INFO')}>Info</button>
+          </div>
+        </div>
       </div>
 
-      <div className="glass-panel data-table-wrapper">
+      <div className="glass-panel data-table-wrapper scrollable-table">
         <table className="data-table">
           <thead>
             <tr>
@@ -188,14 +219,14 @@ function Telemetry({ events }) {
             </tr>
           </thead>
           <tbody>
-            {events.length === 0 ? (
+            {filteredEvents.length === 0 ? (
               <tr>
                 <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3rem' }}>
-                  Awaiting telemetry events...
+                  No matching telemetry events.
                 </td>
               </tr>
             ) : (
-              events.map((e, i) => (
+              filteredEvents.map((e, i) => (
                 <tr key={`${e.timestamp}-${i}`}>
                   <td style={{ whiteSpace: 'nowrap' }}>{new Date(e.timestamp).toLocaleTimeString()}</td>
                   <td style={{ fontWeight: '600' }}>{e.type}</td>
@@ -225,9 +256,9 @@ function Policies({ config }) {
         <p>Currently active YAML configurations and AI parameters.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+      <div className="policies-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '2rem' }}>
         
-        <div className="glass-panel" style={{ padding: '1.5rem' }}>
+        <div className="glass-panel" style={{ padding: '1.5rem', height: 'fit-content' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
             <Cpu color="var(--accent)" />
             <h3 style={{ fontSize: '1.2rem' }}>AI Copilot Configuration</h3>
@@ -241,11 +272,11 @@ function Policies({ config }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>
               <span style={{ color: 'var(--text-muted)' }}>Endpoint</span>
-              <span className="mono">{config.ai_config?.endpoint}</span>
+              <span className="mono" style={{ fontSize: '0.85rem' }}>{config.ai_config?.endpoint}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem' }}>
               <span style={{ color: 'var(--text-muted)' }}>API Key</span>
-              <span className="mono">••••••••••••••••</span>
+              <span className="mono" style={{ fontSize: '0.85rem' }}>••••••••••••••••</span>
             </div>
           </div>
         </div>
