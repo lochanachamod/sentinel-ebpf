@@ -8,6 +8,7 @@
 char __license[] SEC("license") = "Dual MIT/GPL";
 
 struct event {
+    __u64 cgroup_id;
     __u32 pid;
     __u32 uid;
     __u32 type; // 1 = execve, 2 = connect
@@ -44,6 +45,7 @@ int tracepoint__syscalls__sys_enter_execve(struct sys_enter_execve_args *ctx) {
         return 0;
     }
     
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
     e->type = 1;
@@ -79,6 +81,7 @@ int tracepoint__syscalls__sys_enter_connect(struct sys_enter_connect_args *ctx) 
         return 0;
     }
     
+    e->cgroup_id = bpf_get_current_cgroup_id();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
     e->type = 2;

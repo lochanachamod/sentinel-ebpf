@@ -39,7 +39,7 @@ func loadConfig(path string) (*Config, error) {
 	return &config, err
 }
 
-func evaluateRules(config *Config, filename string, parentComm string, pid uint32) {
+func evaluateRules(config *Config, filename string, parentComm string, pid uint32, cgroup uint64) {
 	for _, rule := range config.Rules {
 		// Check if the executable matches
 		targetMatch := false
@@ -64,7 +64,7 @@ func evaluateRules(config *Config, filename string, parentComm string, pid uint3
 		}
 
 		if parentMatch {
-			log.Printf("⚠️  ANOMALY DETECTED [Rule: %s]: Execution of %s by parent %s.", rule.Name, filename, parentComm)
+			log.Printf("⚠️  ANOMALY DETECTED [Rule: %s]: Execution of %s by parent %s in Cgroup %d.", rule.Name, filename, parentComm, cgroup)
 			if rule.Action == "kill" {
 				log.Printf("🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", pid)
 				process, err := os.FindProcess(int(pid))
@@ -85,6 +85,7 @@ func evaluateRules(config *Config, filename string, parentComm string, pid uint3
 
 // event represents the telemetry payload from the eBPF program
 type event struct {
+	CgroupID   uint64
 	PID        uint32
 	UID        uint32
 	Type       uint32
@@ -168,10 +169,10 @@ func main() {
 		filename := string(bytes.TrimRight(e.Filename[:], "\x00"))
 
 		if e.Type == 1 {
-			log.Printf("[EXECVE] Parent: %s, UID: %d, Executing: %s (PID: %d)", parentComm, e.UID, filename, e.PID)
-			evaluateRules(config, filename, parentComm, e.PID)
+			log.Printf("[EXECVE] Cgroup: %d, Parent: %s, UID: %d, Executing: %s (PID: %d)", e.CgroupID, parentComm, e.UID, filename, e.PID)
+			evaluateRules(config, filename, parentComm, e.PID, e.CgroupID)
 		} else if e.Type == 2 {
-			log.Printf("[CONNECT] PID: %d, UID: %d, Comm: %s", e.PID, e.UID, parentComm)
+			log.Printf("[CONNECT] Cgroup: %d, PID: %d, UID: %d, Comm: %s", e.CgroupID, e.PID, e.UID, parentComm)
 		}
 	}
 }
