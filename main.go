@@ -24,21 +24,21 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ebpf/sentinel.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
 type Config struct {
-	AIConfig AIConfig `yaml:"ai_config"`
-	Rules    []Rule   `yaml:"rules"`
+	AIConfig AIConfig `yaml:"ai_config" json:"ai_config"`
+	Rules    []Rule   `yaml:"rules" json:"rules"`
 }
 
 type AIConfig struct {
-	Endpoint string `yaml:"endpoint"`
-	Enabled  bool   `yaml:"enabled"`
-	APIKey   string `yaml:"api_key"`
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	APIKey   string `yaml:"api_key" json:"api_key"`
 }
 
 type Rule struct {
-	Name              string   `yaml:"name"`
-	Action            string   `yaml:"action"`
-	TargetExecutables []string `yaml:"target_executables"`
-	BlockedParents    []string `yaml:"blocked_parents"`
+	Name              string   `yaml:"name" json:"name"`
+	Action            string   `yaml:"action" json:"action"`
+	TargetExecutables []string `yaml:"target_executables" json:"target_executables"`
+	BlockedParents    []string `yaml:"blocked_parents" json:"blocked_parents"`
 }
 
 type AIPayload struct {
@@ -59,11 +59,19 @@ type APIEvent struct {
 var (
 	eventsHistory []APIEvent
 	eventsMutex   sync.Mutex
+
+	// Metrics
+	statsMutex           sync.Mutex
+	totalEvents          int
+	totalAnomalies       int
+	totalAIInterventions int
+	totalKills           int
+
+	loadedConfig *Config
 )
 
 func addEvent(eventType, details, severity string) {
 	eventsMutex.Lock()
-	defer eventsMutex.Unlock()
 	e := APIEvent{
 		Timestamp: time.Now().Format(time.RFC3339),
 		Type:      eventType,
@@ -74,6 +82,20 @@ func addEvent(eventType, details, severity string) {
 	if len(eventsHistory) > 100 {
 		eventsHistory = eventsHistory[:100]
 	}
+	eventsMutex.Unlock()
+
+	statsMutex.Lock()
+	totalEvents++
+	if severity == "critical" {
+		totalAnomalies++
+	}
+	if eventType == "AI_COPILOT" {
+		totalAIInterventions++
+	}
+	if eventType == "CONTAINMENT" {
+		totalKills++
+	}
+	statsMutex.Unlock()
 }
 
 func startAPI() {
@@ -86,13 +108,33 @@ func startAPI() {
 		json.NewEncoder(w).Encode(eventsHistory)
 	})
 
-	log.Println("🌐 REST API Server started on http://localhost:8080/api/events")
+	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+		statsMutex.Lock()
+		stats := map[string]int{
+			"totalEvents":          totalEvents,
+			"totalAnomalies":       totalAnomalies,
+			"totalAIInterventions": totalAIInterventions,
+			"totalKills":           totalKills,
+		}
+		statsMutex.Unlock()
+		json.NewEncoder(w).Encode(stats)
+	})
+
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(loadedConfig)
+	})
+
+	log.Println("🌐 REST API Server started on http://localhost:8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatalf("API Server failed: %v", err)
 	}
 }
 
-func loadConfig(path string) (*Config, error) {
+func loadConfigFromFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -211,22 +253,24 @@ type event struct {
 }
 
 func main() {
-	// Start REST API
-	go startAPI()
-
 	// Allow the current process to lock memory for eBPF resources.
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatal(err)
 	}
 
-	config, err := loadConfig("config.yaml")
+	config, err := loadConfigFromFile("config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config.yaml: %v", err)
 	}
+	loadedConfig = config
+
 	log.Printf("Loaded %d dynamic security rules.", len(config.Rules))
 	if config.AIConfig.Enabled {
 		log.Printf("🤖 AI Copilot is ENABLED (Endpoint: %s)", config.AIConfig.Endpoint)
 	}
+
+	// Start REST API
+	go startAPI()
 
 	// Load pre-compiled programs and maps into the kernel.
 	objs := bpfObjects{}
