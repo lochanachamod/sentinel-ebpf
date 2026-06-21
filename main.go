@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
@@ -19,7 +21,14 @@ import (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ebpf/sentinel.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
 type Config struct {
-	Rules []Rule `yaml:"rules"`
+	AIConfig AIConfig `yaml:"ai_config"`
+	Rules    []Rule   `yaml:"rules"`
+}
+
+type AIConfig struct {
+	Endpoint string `yaml:"endpoint"`
+	Enabled  bool   `yaml:"enabled"`
+	APIKey   string `yaml:"api_key"`
 }
 
 type Rule struct {
@@ -27,6 +36,14 @@ type Rule struct {
 	Action            string   `yaml:"action"`
 	TargetExecutables []string `yaml:"target_executables"`
 	BlockedParents    []string `yaml:"blocked_parents"`
+}
+
+type AIPayload struct {
+	CgroupID   uint64 `json:"cgroup_id"`
+	ParentComm string `json:"parent_comm"`
+	Filename   string `json:"filename"`
+	PID        uint32 `json:"pid"`
+	Context    string `json:"context"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -37,6 +54,33 @@ func loadConfig(path string) (*Config, error) {
 	var config Config
 	err = yaml.Unmarshal(data, &config)
 	return &config, err
+}
+
+func askAI(config *Config, filename string, parentComm string, pid uint32, cgroup uint64) bool {
+	log.Printf("🤖 Sending telemetry to AI Copilot at %s...", config.AIConfig.Endpoint)
+
+	payload := AIPayload{
+		CgroupID:   cgroup,
+		ParentComm: parentComm,
+		Filename:   filename,
+		PID:        pid,
+		Context:    "Evaluate if this process execution is malicious.",
+	}
+
+	jsonData, _ := json.Marshal(payload)
+	log.Printf("🤖 AI Payload: %s", string(jsonData))
+
+	// Simulate network delay to the LLM API
+	time.Sleep(800 * time.Millisecond)
+
+	// Mock AI Decision logic for the PoC
+	decision := "KILL"
+	confidence := 0.98
+	reason := "Interactive shells spawned by arbitrary parents are highly suspicious."
+
+	log.Printf("🤖 AI Decision: %s (Confidence: %.2f) - Reason: %s", decision, confidence, reason)
+
+	return decision == "KILL"
 }
 
 func evaluateRules(config *Config, filename string, parentComm string, pid uint32, cgroup uint64) {
@@ -65,7 +109,21 @@ func evaluateRules(config *Config, filename string, parentComm string, pid uint3
 
 		if parentMatch {
 			log.Printf("⚠️  ANOMALY DETECTED [Rule: %s]: Execution of %s by parent %s in Cgroup %d.", rule.Name, filename, parentComm, cgroup)
+
+			shouldKill := false
+
 			if rule.Action == "kill" {
+				shouldKill = true
+			} else if rule.Action == "ai_evaluate" {
+				if config.AIConfig.Enabled {
+					shouldKill = askAI(config, filename, parentComm, pid, cgroup)
+				} else {
+					log.Printf("⚠️  AI Copilot is disabled in config. Defaulting to block.")
+					shouldKill = true
+				}
+			}
+
+			if shouldKill {
 				log.Printf("🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", pid)
 				process, err := os.FindProcess(int(pid))
 				if err != nil {
@@ -77,6 +135,8 @@ func evaluateRules(config *Config, filename string, parentComm string, pid uint3
 						log.Printf("✅ Process %d successfully terminated.", pid)
 					}
 				}
+			} else {
+				log.Printf("✅ AI Copilot marked execution as SAFE. Allowed.")
 			}
 			return // Stop evaluating after a match
 		}
@@ -104,6 +164,9 @@ func main() {
 		log.Fatalf("Failed to load config.yaml: %v", err)
 	}
 	log.Printf("Loaded %d dynamic security rules.", len(config.Rules))
+	if config.AIConfig.Enabled {
+		log.Printf("🤖 AI Copilot is ENABLED (Endpoint: %s)", config.AIConfig.Endpoint)
+	}
 
 	// Load pre-compiled programs and maps into the kernel.
 	objs := bpfObjects{}

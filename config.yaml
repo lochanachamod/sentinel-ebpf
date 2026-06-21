@@ -1,26 +1,18 @@
-rules:
-  - name: "Block Shell Spawns from Web Servers"
-    action: "kill"
-    target_executables:
-      - "sh"
-      - "bash"
-      - "/bin/sh"
-      - "/bin/bash"
-    blocked_parents:
-      - "nginx"
-      - "apache2"
-      - "node"
-      - "python3"
+ai_config:
+  endpoint: "https://api.sentinel-ai.local/v1/evaluate"
+  enabled: true
+  api_key: "sk-dummy-key"
 
-  - name: "Block Interactive Shells from Generic Users (Testing)"
-    action: "kill"
+rules:
+  - name: "AI Copilot Shell Evaluation"
+    action: "ai_evaluate"
     target_executables:
       - "sh"
       - "bash"
       - "/bin/sh"
       - "/bin/bash"
     blocked_parents:
-      - "*" # * means block from ANY parent
+      - "*" # Send ALL shells to the AI for evaluation
 
   - name: "Block Netcat Executions Globally"
     action: "kill"
