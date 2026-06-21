@@ -97,7 +97,19 @@ func main() {
 			// Basic Anomaly Engine
 			if comm == "sh" || comm == "bash" {
 				log.Printf("⚠️  ANOMALY DETECTED: Execution of %s by PID %d. Flagging for containment evaluation.", comm, e.PID)
-				// In Phase 5, we will add containment logic here.
+				
+				// Active Containment (Phase 5)
+				log.Printf("🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", e.PID)
+				process, err := os.FindProcess(int(e.PID))
+				if err != nil {
+					log.Printf("Failed to find process %d: %s", e.PID, err)
+				} else {
+					if err := process.Kill(); err != nil {
+						log.Printf("Failed to kill process %d: %s", e.PID, err)
+					} else {
+						log.Printf("✅ Process %d successfully terminated.", e.PID)
+					}
+				}
 			}
 		} else if e.Type == 2 {
 			log.Printf("[CONNECT] PID: %d, UID: %d, Comm: %s", e.PID, e.UID, comm)
