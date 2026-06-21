@@ -1,0 +1,5 @@
+# Binaries
+sentinel-ebpf
+
+# eBPF object files
+*.o

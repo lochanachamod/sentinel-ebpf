@@ -6,7 +6,7 @@ generate:
 	go generate ./...
 
 build:
-	go build -o sentinel-ebpf main.go
+	go build -o sentinel-ebpf .
 
 run: build
 	sudo ./sentinel-ebpf
