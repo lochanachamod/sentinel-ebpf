@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/cilium/ebpf/link"
@@ -18,10 +19,11 @@ import (
 
 // event represents the telemetry payload from the eBPF program
 type event struct {
-	PID  uint32
-	UID  uint32
-	Type uint32
-	Comm [16]byte
+	PID        uint32
+	UID        uint32
+	Type       uint32
+	ParentComm [16]byte
+	Filename   [64]byte
 }
 
 func main() {
@@ -90,14 +92,16 @@ func main() {
 		}
 
 		// Format the output
-		comm := string(bytes.TrimRight(e.Comm[:], "\x00"))
+		parentComm := string(bytes.TrimRight(e.ParentComm[:], "\x00"))
+		filename := string(bytes.TrimRight(e.Filename[:], "\x00"))
+
 		if e.Type == 1 {
-			log.Printf("[EXECVE] PID: %d, UID: %d, Comm: %s", e.PID, e.UID, comm)
-			
+			log.Printf("[EXECVE] Parent: %s, UID: %d, Executing: %s (PID: %d)", parentComm, e.UID, filename, e.PID)
+
 			// Basic Anomaly Engine
-			if comm == "sh" || comm == "bash" {
-				log.Printf("⚠️  ANOMALY DETECTED: Execution of %s by PID %d. Flagging for containment evaluation.", comm, e.PID)
-				
+			if strings.HasSuffix(filename, "/sh") || strings.HasSuffix(filename, "/bash") || filename == "sh" || filename == "bash" {
+				log.Printf("⚠️  ANOMALY DETECTED: Execution of %s by parent %s. Flagging for containment evaluation.", filename, parentComm)
+
 				// Active Containment (Phase 5)
 				log.Printf("🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", e.PID)
 				process, err := os.FindProcess(int(e.PID))
@@ -112,7 +116,7 @@ func main() {
 				}
 			}
 		} else if e.Type == 2 {
-			log.Printf("[CONNECT] PID: %d, UID: %d, Comm: %s", e.PID, e.UID, comm)
+			log.Printf("[CONNECT] PID: %d, UID: %d, Comm: %s", e.PID, e.UID, parentComm)
 		}
 	}
 }
