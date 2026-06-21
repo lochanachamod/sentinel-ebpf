@@ -5,10 +5,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -46,6 +49,49 @@ type AIPayload struct {
 	Context    string `json:"context"`
 }
 
+type APIEvent struct {
+	Timestamp string `json:"timestamp"`
+	Type      string `json:"type"`
+	Details   string `json:"details"`
+	Severity  string `json:"severity"`
+}
+
+var (
+	eventsHistory []APIEvent
+	eventsMutex   sync.Mutex
+)
+
+func addEvent(eventType, details, severity string) {
+	eventsMutex.Lock()
+	defer eventsMutex.Unlock()
+	e := APIEvent{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Type:      eventType,
+		Details:   details,
+		Severity:  severity,
+	}
+	eventsHistory = append([]APIEvent{e}, eventsHistory...)
+	if len(eventsHistory) > 100 {
+		eventsHistory = eventsHistory[:100]
+	}
+}
+
+func startAPI() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+		eventsMutex.Lock()
+		defer eventsMutex.Unlock()
+		json.NewEncoder(w).Encode(eventsHistory)
+	})
+
+	log.Println("🌐 REST API Server started on http://localhost:8080/api/events")
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Fatalf("API Server failed: %v", err)
+	}
+}
+
 func loadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -57,7 +103,9 @@ func loadConfig(path string) (*Config, error) {
 }
 
 func askAI(config *Config, filename string, parentComm string, pid uint32, cgroup uint64) bool {
-	log.Printf("🤖 Sending telemetry to AI Copilot at %s...", config.AIConfig.Endpoint)
+	msg := fmt.Sprintf("Sending telemetry to AI Copilot at %s...", config.AIConfig.Endpoint)
+	log.Printf("🤖 %s", msg)
+	addEvent("AI_COPILOT", msg, "info")
 
 	payload := AIPayload{
 		CgroupID:   cgroup,
@@ -78,7 +126,9 @@ func askAI(config *Config, filename string, parentComm string, pid uint32, cgrou
 	confidence := 0.98
 	reason := "Interactive shells spawned by arbitrary parents are highly suspicious."
 
-	log.Printf("🤖 AI Decision: %s (Confidence: %.2f) - Reason: %s", decision, confidence, reason)
+	resMsg := fmt.Sprintf("AI Decision: %s (Confidence: %.2f) - Reason: %s", decision, confidence, reason)
+	log.Printf("🤖 %s", resMsg)
+	addEvent("AI_DECISION", resMsg, "warning")
 
 	return decision == "KILL"
 }
@@ -108,7 +158,9 @@ func evaluateRules(config *Config, filename string, parentComm string, pid uint3
 		}
 
 		if parentMatch {
-			log.Printf("⚠️  ANOMALY DETECTED [Rule: %s]: Execution of %s by parent %s in Cgroup %d.", rule.Name, filename, parentComm, cgroup)
+			alertMsg := fmt.Sprintf("ANOMALY DETECTED [Rule: %s]: Execution of %s by parent %s in Cgroup %d.", rule.Name, filename, parentComm, cgroup)
+			log.Printf("⚠️  %s", alertMsg)
+			addEvent("ANOMALY", alertMsg, "critical")
 
 			shouldKill := false
 
@@ -124,7 +176,10 @@ func evaluateRules(config *Config, filename string, parentComm string, pid uint3
 			}
 
 			if shouldKill {
-				log.Printf("🛡️  CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", pid)
+				killMsg := fmt.Sprintf("CONTAINMENT TRIGGERED: Sending SIGKILL to PID %d...", pid)
+				log.Printf("🛡️  %s", killMsg)
+				addEvent("CONTAINMENT", killMsg, "warning")
+
 				process, err := os.FindProcess(int(pid))
 				if err != nil {
 					log.Printf("Failed to find process %d: %s", pid, err)
@@ -132,7 +187,9 @@ func evaluateRules(config *Config, filename string, parentComm string, pid uint3
 					if err := process.Kill(); err != nil {
 						log.Printf("Failed to kill process %d: %s", pid, err)
 					} else {
-						log.Printf("✅ Process %d successfully terminated.", pid)
+						succMsg := fmt.Sprintf("Process %d successfully terminated.", pid)
+						log.Printf("✅ %s", succMsg)
+						addEvent("ACTION_SUCCESS", succMsg, "success")
 					}
 				}
 			} else {
@@ -154,6 +211,9 @@ type event struct {
 }
 
 func main() {
+	// Start REST API
+	go startAPI()
+
 	// Allow the current process to lock memory for eBPF resources.
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatal(err)
@@ -232,10 +292,14 @@ func main() {
 		filename := string(bytes.TrimRight(e.Filename[:], "\x00"))
 
 		if e.Type == 1 {
-			log.Printf("[EXECVE] Cgroup: %d, Parent: %s, UID: %d, Executing: %s (PID: %d)", e.CgroupID, parentComm, e.UID, filename, e.PID)
+			msg := fmt.Sprintf("Cgroup: %d, Parent: %s, UID: %d, Executing: %s (PID: %d)", e.CgroupID, parentComm, e.UID, filename, e.PID)
+			log.Printf("[EXECVE] %s", msg)
+			addEvent("EXECVE", msg, "info")
 			evaluateRules(config, filename, parentComm, e.PID, e.CgroupID)
 		} else if e.Type == 2 {
-			log.Printf("[CONNECT] Cgroup: %d, PID: %d, UID: %d, Comm: %s", e.CgroupID, e.PID, e.UID, parentComm)
+			msg := fmt.Sprintf("Cgroup: %d, PID: %d, UID: %d, Comm: %s", e.CgroupID, e.PID, e.UID, parentComm)
+			log.Printf("[CONNECT] %s", msg)
+			addEvent("CONNECT", msg, "info")
 		}
 	}
 }
