@@ -264,19 +264,19 @@ function Policies({ config }) {
             <h3 style={{ fontSize: '1.2rem' }}>AI Copilot Configuration</h3>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ color: 'var(--text-muted)' }}>Status</span>
-              <span className={`badge badge-${config.ai_config?.enabled ? 'success' : 'warning'}`}>
+            <div className="config-row">
+              <span className="config-label">Status</span>
+              <span className={`badge badge-${config.ai_config?.enabled ? 'success' : 'warning'}`} style={{ width: 'fit-content' }}>
                 {config.ai_config?.enabled ? 'ENABLED' : 'DISABLED'}
               </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border)' }}>
-              <span style={{ color: 'var(--text-muted)' }}>Endpoint</span>
-              <span className="mono" style={{ fontSize: '0.85rem' }}>{config.ai_config?.endpoint}</span>
+            <div className="config-row">
+              <span className="config-label">Endpoint</span>
+              <span className="config-value mono">{config.ai_config?.endpoint}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>API Key</span>
-              <span className="mono" style={{ fontSize: '0.85rem' }}>••••••••••••••••</span>
+            <div className="config-row">
+              <span className="config-label">API Key</span>
+              <span className="config-value mono">••••••••••••••••</span>
             </div>
           </div>
         </div>
